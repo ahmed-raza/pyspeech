@@ -10,19 +10,74 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://127.0.0.1:8000/ws');
+    const ws = new WebSocket('ws://localhost:8000/ws');
+
+    ws.onopen = () => {
+      console.log('✅ WebSocket connected');
+      socketRef.current = ws;
+    };
+
     ws.onmessage = (event) => {
       setMessages((prev) => [...prev, event.data]);
     };
+
     ws.onerror = (e) => {
-      console.error('WebSocket error', e);
+      console.error('❌ WebSocket error:', e);
     };
-    socketRef.current = ws;
+
+    ws.onclose = () => {
+      console.log('❎ WebSocket closed');
+    };
 
     return () => {
       ws.close();
     };
   }, []);
+
+  const startSpeechRecognition = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech Recognition not supported in this browser.');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+        }
+      }
+
+      if (finalTranscript && socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(finalTranscript);
+        console.log('Sent:', finalTranscript);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+    };
+
+    recognition.onend = () => {
+      console.log('Speech recognition ended, restarting...');
+      if (listening) {
+        recognition.start();
+      }
+    };
+
+    recognition.start();
+  };
+
 
   const startMic = async () => {
     if (listening) return;
@@ -62,6 +117,7 @@ export default function Home() {
 
       animate();
       setListening(true);
+      startSpeechRecognition();
     } catch (err) {
       console.error('Mic error:', err);
     }
